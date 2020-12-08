@@ -230,13 +230,14 @@ class SetaLRPLossCriterion(nn.Module):
 
             losses_cls, rank, order = self.aLRP_Loss.apply(src_logits, labels, giou_losses)
             losses = {'loss_cls': losses_cls}
+            losses['loss_giou'] = giou_losses.mean()
 
             #Order the regression losses considering the scores. 
-            ordered_losses_bbox = giou_losses[order.detach()].flip(dims=[0])
+            #ordered_losses_bbox = giou_losses[order.detach()].flip(dims=[0])
             
             #Compute aLRP Regression Loss
-            losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
-            losses_cls = losses['loss_cls']
+            #losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+            #losses_cls = losses['loss_cls']
             '''
             self.cls_LRP_hist.append(float(losses_cls.item()))
             self.reg_LRP_hist.append(float(losses_bbox.item()))
@@ -250,7 +251,7 @@ class SetaLRPLossCriterion(nn.Module):
             '''
 
 #            losses['loss_giou'] = losses_bbox * self.SB_weight
-            losses['loss_giou'] = losses_bbox
+#            losses['loss_giou'] = losses_bbox
 
 
         return losses
