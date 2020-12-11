@@ -21,13 +21,13 @@ from detectron2.structures import Boxes, ImageList, Instances
 from detectron2.utils.logger import log_first_n
 from fvcore.nn import giou_loss, smooth_l1_loss
 
-from .loss import SetCriterion, HungarianMatcher
-from .alrploss import SetaLRPLossCriterion
+from .alrploss import SetaLRPLossCriterion, HungarianMatcher
 from .head import DynamicHead
 from .util.box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
 from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized)
+import pdb
 
 __all__ = ["SparseRCNN"]
 

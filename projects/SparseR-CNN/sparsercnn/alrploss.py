@@ -19,7 +19,6 @@ from .util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 
 from scipy.optimize import linear_sum_assignment
 from .alrp_loss import aLRPLoss, FastaLRPLoss
-import collections
 import numpy as np
 
 import pdb
@@ -56,12 +55,6 @@ class SetaLRPLossCriterion(nn.Module):
             self.register_buffer('empty_weight', empty_weight)
         self.aLRP_Loss = aLRPLoss()
 #        self.aLRP_Loss = FastaLRPLoss()
-        self.SB_weight = 50
-        self.counter = 0
-        self.period = 3665
-
-        self.cls_LRP_hist = collections.deque(maxlen=self.period)
-        self.reg_LRP_hist = collections.deque(maxlen=self.period)
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=False):
         """Classification loss (NLL)
@@ -178,8 +171,10 @@ class SetaLRPLossCriterion(nn.Module):
 
         # Compute all the requested losses
         src_boxes = []
+        src_boxes_ = []
         src_logits = []
         target_boxes = []
+        target_boxes_ = []
         target_classes = []
 
 
@@ -188,6 +183,11 @@ class SetaLRPLossCriterion(nn.Module):
         src_logits.append(outputs['pred_logits'])
 
         target_boxes.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0))
+        
+        image_size = torch.cat([v["image_size_xyxy_tgt"] for v in targets])
+        src_boxes_.append(outputs['pred_boxes'][idx] / image_size)
+        target_boxes_.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0) / image_size)
+
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes_ = torch.full(outputs['pred_logits'].shape[:2], self.num_classes,
                                     dtype=torch.int64, device=outputs['pred_logits'].device)
@@ -200,8 +200,11 @@ class SetaLRPLossCriterion(nn.Module):
                 idx = self._get_src_permutation_idx(indices)
                 src_boxes.append(aux_outputs['pred_boxes'][idx])
                 src_logits.append(aux_outputs['pred_logits'])
-
                 target_boxes.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0))
+                image_size = torch.cat([v["image_size_xyxy_tgt"] for v in targets])
+                src_boxes_.append(outputs['pred_boxes'][idx] / image_size)
+                target_boxes_.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0) / image_size)
+
                 target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
                 target_classes_ = torch.full(aux_outputs['pred_logits'].shape[:2], self.num_classes,
                                             dtype=torch.int64, device=aux_outputs['pred_logits'].device)
@@ -209,11 +212,15 @@ class SetaLRPLossCriterion(nn.Module):
                 target_classes.append(target_classes_)
 
         src_boxes = torch.cat(src_boxes)
+        src_boxes_ = torch.cat(src_boxes_)
         src_logits = torch.cat(src_logits)
         target_boxes = torch.cat(target_boxes)
+        target_boxes_ = torch.cat(target_boxes_)
         target_classes = torch.cat(target_classes)
 
-        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes))) / 2
+        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))
+        loss_bbox = F.l1_loss(src_boxes_, target_boxes_, reduction='none')
+
 
         src_logits = src_logits.flatten(0, 1)
         target_classes = target_classes.flatten(0, 1)        
@@ -222,36 +229,38 @@ class SetaLRPLossCriterion(nn.Module):
         labels[pos_inds, target_classes[pos_inds]] = 1
         src_logits = src_logits.reshape(-1)
         labels = labels.reshape(-1)
+        class_loss = sigmoid_focal_loss_jit(
+                src_logits,
+                labels,
+                alpha=self.focal_loss_alpha,
+                gamma=self.focal_loss_gamma,
+                reduction="sum",
+            ) / num_boxes
+        losses = {'loss_ce': class_loss}
+        losses['loss_giou'] = giou_losses.sum() / num_boxes
+        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+
+        '''
         if labels.sum() == 0:
             losses = {}
-            losses['loss_giou'] = torch.sum(src_boxes)*0
+            losses['loss_giou'] = torch.sum(giou_losses)*0
             losses['loss_cls'] = torch.sum(src_logits)*0 + 1
         else:
 
-            losses_cls, rank, order = self.aLRP_Loss.apply(src_logits, labels, giou_losses)
+            losses_cls, rank, order = self.aLRP_Loss.apply(src_logits, labels, giou_losses.detach())
             losses = {'loss_cls': losses_cls}
-            losses['loss_giou'] = giou_losses.mean()
+            #losses['loss_giou'] = giou_losses.mean()
 
             #Order the regression losses considering the scores. 
-            #ordered_losses_bbox = giou_losses[order.detach()].flip(dims=[0])
+            ordered_losses_bbox = giou_losses[order.detach()].flip(dims=[0])
             
             #Compute aLRP Regression Loss
-            #losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+            losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
             #losses_cls = losses['loss_cls']
-            '''
-            self.cls_LRP_hist.append(float(losses_cls.item()))
-            self.reg_LRP_hist.append(float(losses_bbox.item()))
-            self.counter+=1
-            
-            if self.counter == self.period:
-                self.SB_weight = (np.mean(self.reg_LRP_hist)+np.mean(self.cls_LRP_hist))/np.mean(self.reg_LRP_hist)
-                self.cls_LRP_hist.clear()
-                self.reg_LRP_hist.clear()
-                self.counter=0
-            '''
 
-#            losses['loss_giou'] = losses_bbox * self.SB_weight
-#            losses['loss_giou'] = losses_bbox
+            #losses['loss_giou'] = losses_bbox * self.SB_weight
+            losses['loss_giou'] = losses_bbox
+        '''
 
 
         return losses
