@@ -202,7 +202,7 @@ class SetaLRPLossCriterion(nn.Module):
                 src_logits.append(aux_outputs['pred_logits'])
                 target_boxes.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0))
                 image_size = torch.cat([v["image_size_xyxy_tgt"] for v in targets])
-                src_boxes_.append(outputs['pred_boxes'][idx] / image_size)
+                src_boxes_.append(aux_outputs['pred_boxes'][idx] / image_size)
                 target_boxes_.append(torch.cat([t['boxes_xyxy'][i] for t, (_, i) in zip(targets, indices)], dim=0) / image_size)
 
                 target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
