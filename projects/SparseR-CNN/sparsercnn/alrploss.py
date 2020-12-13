@@ -18,7 +18,7 @@ from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
 from .util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 
 from scipy.optimize import linear_sum_assignment
-from .alrp_loss import aLRPLoss, FastaLRPLoss
+from .alrp_loss import aLRPLoss, FastaLRPLoss, APLoss
 import numpy as np
 
 import pdb
@@ -46,6 +46,7 @@ class SetaLRPLossCriterion(nn.Module):
         self.eos_coef = eos_coef
         self.losses = losses
         self.use_focal = use_focal
+        self.delta = cfg.MODEL.SparseRCNN.DELTA
         if self.use_focal:
             self.focal_loss_alpha = cfg.MODEL.SparseRCNN.ALPHA
             self.focal_loss_gamma = cfg.MODEL.SparseRCNN.GAMMA
@@ -53,8 +54,9 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight = torch.ones(self.num_classes + 1)
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
-        self.aLRP_Loss = aLRPLoss()
+#        self.aLRP_Loss = aLRPLoss()
 #        self.aLRP_Loss = FastaLRPLoss()
+        self.aLRP_Loss = APLoss()
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=False):
         """Classification loss (NLL)
@@ -229,6 +231,9 @@ class SetaLRPLossCriterion(nn.Module):
         labels[pos_inds, target_classes[pos_inds]] = 1
         src_logits = src_logits.reshape(-1)
         labels = labels.reshape(-1)
+        class_loss = self.aLRP_Loss.apply(src_logits, labels, self.delta)
+        '''
+
         class_loss = sigmoid_focal_loss_jit(
                 src_logits,
                 labels,
@@ -236,6 +241,7 @@ class SetaLRPLossCriterion(nn.Module):
                 gamma=self.focal_loss_gamma,
                 reduction="sum",
             ) / num_boxes
+        '''
         losses = {'loss_ce': class_loss}
         losses['loss_giou'] = giou_losses.sum() / num_boxes
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
