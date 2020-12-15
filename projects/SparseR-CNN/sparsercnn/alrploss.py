@@ -54,9 +54,9 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight = torch.ones(self.num_classes + 1)
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
-#        self.aLRP_Loss = aLRPLoss()
+        self.aLRP_Loss = aLRPLoss()
 #        self.aLRP_Loss = FastaLRPLoss()
-        self.aLRP_Loss = APLoss()
+#        self.aLRP_Loss = APLoss()
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=False):
         """Classification loss (NLL)
@@ -209,7 +209,7 @@ class SetaLRPLossCriterion(nn.Module):
         target_boxes_ = torch.cat(target_boxes_)
         target_classes = torch.cat(target_classes)
 
-        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))
+        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))/2
         loss_bbox = F.l1_loss(src_boxes_, target_boxes_, reduction='none')
 
 
@@ -220,7 +220,19 @@ class SetaLRPLossCriterion(nn.Module):
         labels[pos_inds, target_classes[pos_inds]] = 1
         src_logits = src_logits.reshape(-1)
         labels = labels.reshape(-1)
-        class_loss = self.aLRP_Loss.apply(src_logits, labels, self.delta)
+        if labels.sum() > 0:
+            #print((giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2)
+            class_loss, rank, order = self.aLRP_Loss.apply(src_logits, labels, (giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2, self.delta)
+            losses = {'loss_ce': class_loss}
+            losses['loss_giou'] = giou_losses.sum() / num_boxes
+            losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+        else:
+            print("here")
+            losses = {}
+            losses['loss_giou'] = torch.sum(giou_losses)*0
+            losses['loss_bbox'] = torch.sum(loss_bbox)*0
+            losses['loss_ce'] = torch.sum(src_logits)*0 + 1
+
         '''
 
         class_loss = sigmoid_focal_loss_jit(
@@ -231,9 +243,7 @@ class SetaLRPLossCriterion(nn.Module):
                 reduction="sum",
             ) / num_boxes
         '''
-        losses = {'loss_ce': class_loss}
-        losses['loss_giou'] = giou_losses.sum() / num_boxes
-        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+
 
         '''
         if labels.sum() == 0:
