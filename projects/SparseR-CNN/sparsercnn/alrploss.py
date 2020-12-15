@@ -141,17 +141,6 @@ class SetaLRPLossCriterion(nn.Module):
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def vectorize_labels(self, flat_labels, num_classes, label_weights = None):
-        prediction_number = flat_labels.shape[1]
-        pdb.set_trace()
-        labels = torch.zeros( [prediction_number, num_classes], dtype=flat_labels.dtype, device=flat_labels.device)
-        pos_labels = flat_labels < num_classes
-        labels[pos_labels, flat_labels[pos_labels]] = 1
-        if label_weights is not None:
-            ignore_labels = (label_weights == 0)
-            labels[ignore_labels, :] = -1
-        return labels.reshape(-1)
-
     def forward(self, outputs, targets):
         """ This performs the loss computation.
         Parameters:

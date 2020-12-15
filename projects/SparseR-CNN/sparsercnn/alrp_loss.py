@@ -31,14 +31,20 @@ class APLoss(torch.autograd.Function):
             #x_ij s as score differences with fgs
             fg_relations=fg_logits-fg_logits[ii] 
             #Apply piecewise linear function and determine relations with fgs
-            fg_relations=torch.clamp(fg_relations/(2*delta)+0.5,min=0,max=1)
+            if delta==0:
+                fg_relations=(fg_relations > 0).float()
+            else:
+                fg_relations=torch.clamp(fg_relations/(2*delta)+0.5,min=0,max=1)
             #Discard i=j in the summation in rank_pos
             fg_relations[ii]=0
 
             #x_ij s as score differences with bgs
             bg_relations=relevant_bg_logits-fg_logits[ii]
             #Apply piecewise linear function and determine relations with bgs
-            bg_relations=torch.clamp(bg_relations/(2*delta)+0.5,min=0,max=1)
+            if delta==0:
+                bg_relations=(bg_relations > 0).float()
+            else:
+                bg_relations=torch.clamp(bg_relations/(2*delta)+0.5,min=0,max=1)
 
             #Compute the rank of the example within fgs and number of bgs with larger scores
             rank_pos=1+torch.sum(fg_relations)
