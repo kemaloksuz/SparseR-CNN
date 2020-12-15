@@ -209,7 +209,7 @@ class SetaLRPLossCriterion(nn.Module):
         target_boxes_ = torch.cat(target_boxes_)
         target_classes = torch.cat(target_classes)
 
-        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))/2
+        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))
         loss_bbox = F.l1_loss(src_boxes_, target_boxes_, reduction='none')
 
 
@@ -222,7 +222,7 @@ class SetaLRPLossCriterion(nn.Module):
         labels = labels.reshape(-1)
         if labels.sum() > 0:
             #print((giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2)
-            class_loss, rank, order = self.aLRP_Loss.apply(src_logits, labels, (giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2, self.delta)
+            class_loss, rank, order = self.aLRP_Loss.apply(src_logits, labels, (giou_losses.detach()/2+loss_bbox.detach().mean(dim=1))/2, self.delta)
             losses = {'loss_ce': class_loss}
             losses['loss_giou'] = giou_losses.sum() / num_boxes
             losses['loss_bbox'] = loss_bbox.sum() / num_boxes
