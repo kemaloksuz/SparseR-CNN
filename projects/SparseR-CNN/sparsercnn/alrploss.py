@@ -55,7 +55,7 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
         self.aLRP_Loss = aLRPLoss()
-        self.loss_weight = 2.5
+        self.loss_weight = 0.75
 #        self.aLRP_Loss = FastaLRPLoss()
 #        self.aLRP_Loss = APLoss()
 
