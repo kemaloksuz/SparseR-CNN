@@ -55,7 +55,7 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
         self.aLRP_Loss = aLRPLoss()
-        self.loss_weight = 0.5
+        self.loss_weight = 1.5
 #        self.aLRP_Loss = FastaLRPLoss()
 #        self.aLRP_Loss = APLoss()
 
@@ -231,20 +231,20 @@ class SetaLRPLossCriterion(nn.Module):
             ordered_losses_giou = giou_losses[order.detach()].flip(dims=[0])
             
             #Compute aLRP Regression Loss
-            losses_giou = ((torch.cumsum(ordered_losses_giou,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+            losses_giou = self.loss_weight*((torch.cumsum(ordered_losses_giou,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
 
             #Order the regression losses considering the scores. 
             ordered_losses_bbox = loss_bbox.mean(dim=1)[order.detach()].flip(dims=[0])
             
             #Compute aLRP Regression Loss
-            losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+            losses_bbox = self.loss_weight*((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
             
-            if class_loss < 0.99:
+            if class_loss < self.loss_weight*0.99:
                 aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
                 self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
                 self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
-                losses['loss_giou'] = self.loss_weight* (losses_giou * self.giou_SB_weight)
-                losses['loss_bbox'] = self.loss_weight* ((losses_bbox * self.bbox_SB_weight) / 2.5)
+                losses['loss_giou'] = (losses_giou * self.giou_SB_weight)
+                losses['loss_bbox'] = ((losses_bbox * self.bbox_SB_weight) / 2.5)
             else:
                 losses['loss_giou'] = losses_giou
                 losses['loss_bbox']= losses_bbox
