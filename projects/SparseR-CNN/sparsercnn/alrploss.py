@@ -241,8 +241,8 @@ class SetaLRPLossCriterion(nn.Module):
                 aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
                 self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
                 self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
-                losses['loss_giou'] = losses_giou * self.giou_SB_weight
-                losses['loss_bbox'] = (losses_bbox * self.bbox_SB_weight) / 2.5
+                losses['loss_giou'] = 4* (losses_giou * self.giou_SB_weight)
+                losses['loss_bbox'] = 2 * ((losses_bbox * self.bbox_SB_weight) / 2.5)
             else:
                 losses['loss_giou'] = losses_giou
                 losses['loss_bbox']= losses_bbox
