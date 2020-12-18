@@ -237,8 +237,8 @@ class SetaLRPLossCriterion(nn.Module):
             #Compute aLRP Regression Loss
             losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
 
-            losses['loss_giou'] =  losses_giou * 100
-            losses['loss_bbox'] =  losses_bbox * 200
+            losses['loss_giou'] =  losses_giou * 75
+            losses['loss_bbox'] =  losses_bbox * 150
         else:
             losses = {}
             losses['loss_giou'] = torch.sum(giou_losses)*0
