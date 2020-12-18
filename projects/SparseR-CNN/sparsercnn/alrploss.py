@@ -237,7 +237,7 @@ class SetaLRPLossCriterion(nn.Module):
             #Compute aLRP Regression Loss
             losses_bbox = ((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
             
-            if losses_cls < 0.99:
+            if class_loss < 0.99:
                 aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
                 self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
                 self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
