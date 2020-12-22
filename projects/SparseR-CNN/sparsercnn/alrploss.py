@@ -55,7 +55,7 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
         self.aLRP_Loss = aLRPLoss()
-        self.loss_weight = 1
+        self.loss_weight = 0.5
 #        self.aLRP_Loss = FastaLRPLoss()
 #        self.aLRP_Loss = APLoss()
 
@@ -243,11 +243,11 @@ class SetaLRPLossCriterion(nn.Module):
                 aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
                 self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
                 self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
-                losses['loss_giou'] = 2*(losses_giou * self.giou_SB_weight)
-                losses['loss_bbox'] = 2*((losses_bbox * self.bbox_SB_weight) / 2.5)
+                losses['loss_giou'] = (losses_giou * self.giou_SB_weight)
+                losses['loss_bbox'] = ((losses_bbox * self.bbox_SB_weight) / 2.5)
             else:
-                losses['loss_giou'] = 2*losses_giou
-                losses['loss_bbox'] = 2*losses_bbox
+                losses['loss_giou'] = losses_giou
+                losses['loss_bbox'] = losses_bbox
         else:
             losses = {}
             losses['loss_giou'] = torch.sum(giou_losses)*0
