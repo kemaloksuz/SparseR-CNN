@@ -41,7 +41,8 @@ def add_sparsercnn_config(cfg):
     cfg.MODEL.SparseRCNN.ALPHA = 0.25
     cfg.MODEL.SparseRCNN.GAMMA = 2.0
     cfg.MODEL.SparseRCNN.PRIOR_PROB = 0.01
-    cfg.MODEL.SparseRCNN.DELTA = 1
+    cfg.MODEL.SparseRCNN.DELTA = 1.
+    cfg.MODEL.SparseRCNN.RANKLOSS = "RankSort"
 
     # Optimizer.
     cfg.SOLVER.OPTIMIZER = "ADAMW"

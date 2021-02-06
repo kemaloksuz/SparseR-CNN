@@ -15,10 +15,10 @@ from .util import box_ops
 from .util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate,
                        is_dist_avail_and_initialized)
-from .util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
+from .util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou, box_iou
 
 from scipy.optimize import linear_sum_assignment
-from .alrp_loss import aLRPLoss, FastaLRPLoss, APLoss
+from . import ranking_losses
 import numpy as np
 
 import pdb
@@ -47,6 +47,14 @@ class SetaLRPLossCriterion(nn.Module):
         self.losses = losses
         self.use_focal = use_focal
         self.delta = cfg.MODEL.SparseRCNN.DELTA
+        self.rank_loss_type = cfg.MODEL.SparseRCNN.RANKLOSS
+        if self.rank_loss_type == 'aLRP':
+            self.loss_rank = ranking_losses.aLRPLossv1()
+        elif self.rank_loss_type == 'RankSort':
+            self.loss_rank = ranking_losses.aLRPLossv2sep()
+        elif self.rank_loss_type == 'AP':
+            self.loss_rank = ranking_losses.APLoss()
+
         if self.use_focal:
             self.focal_loss_alpha = cfg.MODEL.SparseRCNN.ALPHA
             self.focal_loss_gamma = cfg.MODEL.SparseRCNN.GAMMA
@@ -54,7 +62,6 @@ class SetaLRPLossCriterion(nn.Module):
             empty_weight = torch.ones(self.num_classes + 1)
             empty_weight[-1] = self.eos_coef
             self.register_buffer('empty_weight', empty_weight)
-        self.aLRP_Loss = aLRPLoss()
         self.loss_weight = 0.5
 #        self.aLRP_Loss = FastaLRPLoss()
 #        self.aLRP_Loss = APLoss()
@@ -210,7 +217,7 @@ class SetaLRPLossCriterion(nn.Module):
         target_boxes_ = torch.cat(target_boxes_)
         target_classes = torch.cat(target_classes)
 
-        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))/2
+        giou_losses = (1 - torch.diag(box_ops.generalized_box_iou(src_boxes, target_boxes)))
         loss_bbox = F.l1_loss(src_boxes_, target_boxes_, reduction='none')
 
 
@@ -219,40 +226,58 @@ class SetaLRPLossCriterion(nn.Module):
         pos_inds = torch.nonzero(target_classes != self.num_classes, as_tuple=True)[0]
         labels = torch.zeros_like(src_logits)
         labels[pos_inds, target_classes[pos_inds]] = 1
+
+        bbox_weights = src_logits.detach().sigmoid().max(dim=1)[0][pos_inds]
         src_logits = src_logits.reshape(-1)
         labels = labels.reshape(-1)
         if labels.sum() > 0:
             #print((giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2)
-            class_loss, rank, order = self.aLRP_Loss.apply(src_logits, labels, (giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2, self.delta)
-            class_loss = self.loss_weight*class_loss
-            losses = {'loss_ce': class_loss}
 
-            #Order the regression losses considering the scores. 
-            ordered_losses_giou = giou_losses[order.detach()].flip(dims=[0])
-            
-            #Compute aLRP Regression Loss
-            losses_giou = self.loss_weight*((torch.cumsum(ordered_losses_giou,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+            if self.rank_loss_type == 'aLRP':
+                class_loss, rank, order = self.loss_rank.apply(src_logits, labels, (giou_losses.detach()+loss_bbox.detach().mean(dim=1))/2, self.delta)
+                class_loss = self.loss_weight*class_loss
+                losses = {'loss_ce': class_loss}
 
-            #Order the regression losses considering the scores. 
-            ordered_losses_bbox = loss_bbox.mean(dim=1)[order.detach()].flip(dims=[0])
-            
-            #Compute aLRP Regression Loss
-            losses_bbox = self.loss_weight*((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
-            
-            if class_loss < self.loss_weight*0.99:
-                aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
-                self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
-                self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
-                losses['loss_giou'] = (losses_giou * self.giou_SB_weight)
-                losses['loss_bbox'] = ((losses_bbox * self.bbox_SB_weight) / 2.5)
-            else:
-                losses['loss_giou'] = losses_giou
-                losses['loss_bbox'] = losses_bbox
+                #Order the regression losses considering the scores. 
+                ordered_losses_giou = giou_losses[order.detach()].flip(dims=[0])
+                
+                #Compute aLRP Regression Loss
+                losses_giou = self.loss_weight*((torch.cumsum(ordered_losses_giou,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+
+                #Order the regression losses considering the scores. 
+                ordered_losses_bbox = loss_bbox.mean(dim=1)[order.detach()].flip(dims=[0])
+                
+                #Compute aLRP Regression Loss
+                losses_bbox = self.loss_weight*((torch.cumsum(ordered_losses_bbox,dim=0)/rank[order.detach()].detach().flip(dims=[0])).mean())
+                
+                if class_loss < self.loss_weight*0.99:
+                    aLRP_loss_val = 0.50*(float(losses_giou.item())+float(losses_bbox.item()))+float(class_loss.item())
+                    self.giou_SB_weight = aLRP_loss_val/float(losses_giou.item())
+                    self.bbox_SB_weight = aLRP_loss_val/float(losses_bbox.item())
+                    losses['loss_giou'] = (losses_giou * self.giou_SB_weight)
+                    losses['loss_bbox'] = ((losses_bbox * self.bbox_SB_weight) / 2.5)
+                else:
+                    losses['loss_giou'] = losses_giou
+                    losses['loss_bbox'] = losses_bbox
+
+            if self.rank_loss_type == 'RankSort':
+                e_loc= (1 - torch.diag(box_iou(src_boxes.detach(), target_boxes)[0])) 
+                ranking_loss, sorting_loss = self.loss_rank.apply(src_logits, labels, e_loc, self.delta)
+                losses = {'loss_rank': ranking_loss}
+                losses['loss_sort'] = sorting_loss
+                bbox_avg_factor = torch.sum(bbox_weights)
+                if bbox_avg_factor < 1e-10:
+                    bbox_avg_factor = 1
+                
+                losses_bbox = torch.sum(bbox_weights*giou_losses)/bbox_avg_factor
+                SB_weight = (ranking_loss+sorting_loss).detach()/float(losses_bbox.item())
+                losses['loss_box'] = losses_bbox * SB_weight
+
         else:
             losses = {}
-            losses['loss_giou'] = torch.sum(giou_losses)*0
-            losses['loss_bbox'] = torch.sum(loss_bbox)*0
-            losses['loss_ce'] = torch.sum(src_logits)*0 + 1
+            losses['loss_box'] = torch.sum(giou_losses)*0
+            losses['loss_rank'] = torch.sum(src_logits)*0 
+            losses['loss_sort'] = torch.sum(src_logits)*0 
 
         '''
 
